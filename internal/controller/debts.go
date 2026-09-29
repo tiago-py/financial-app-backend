@@ -7,11 +7,12 @@ import (
 )
 
 type debtRequest struct {
-	Description    string  `json:"description"`
-	Creditor       string  `json:"creditor"`
-	PrincipalCents int64   `json:"principalCents"`
-	DueDate        *string `json:"dueDate"`
-	Status         string  `json:"status"`
+	Description      string  `json:"description"`
+	Creditor         string  `json:"creditor"`
+	PrincipalCents   int64   `json:"principalCents"`
+	DueDate          *string `json:"dueDate"`
+	Status           string  `json:"status"`
+	InstallmentCount int     `json:"installmentCount"`
 }
 
 func debtInput(input debtRequest) repository.DebtInput {
@@ -45,12 +46,21 @@ func (h *Handler) CreateDebt(w http.ResponseWriter, r *http.Request) {
 		badJSON(w, r)
 		return
 	}
-	item, err := h.service.CreateDebt(r.Context(), UserID(r.Context()), debtInput(input))
+	item, err := h.service.CreateDebt(r.Context(), UserID(r.Context()), debtInput(input), input.InstallmentCount)
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
+}
+
+func (h *Handler) ListDebtInstallments(w http.ResponseWriter, r *http.Request) {
+	items, err := h.service.ListDebtInstallments(r.Context(), UserID(r.Context()), r.PathValue("id"))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (h *Handler) UpdateDebt(w http.ResponseWriter, r *http.Request) {

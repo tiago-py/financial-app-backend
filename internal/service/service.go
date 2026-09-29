@@ -344,7 +344,7 @@ func (s *Service) GetDebt(ctx context.Context, ownerID, id string) (model.Debt, 
 	return s.store.GetDebt(ctx, ownerID, id)
 }
 
-func (s *Service) CreateDebt(ctx context.Context, ownerID string, input repository.DebtInput) (model.Debt, error) {
+func (s *Service) CreateDebt(ctx context.Context, ownerID string, input repository.DebtInput, installmentCount int) (model.Debt, error) {
 	if err := model.ValidateRequired(input.Description, "description", 180); err != nil {
 		return model.Debt{}, err
 	}
@@ -356,11 +356,68 @@ func (s *Service) CreateDebt(ctx context.Context, ownerID string, input reposito
 			return model.Debt{}, err
 		}
 	}
+	installments, err := GenerateDebtInstallments(input.PrincipalCents, installmentCount, input.DueDate)
+	if err != nil {
+		return model.Debt{}, err
+	}
+	input.Installments = installments
 	debt, err := s.store.CreateDebt(ctx, ownerID, input)
 	if err == nil {
 		s.cache.InvalidateUser(ctx, ownerID)
 	}
 	return debt, err
+}
+
+func (s *Service) ListDebtInstallments(ctx context.Context, ownerID, debtID string) ([]model.DebtInstallment, error) {
+	if _, err := s.store.GetDebt(ctx, ownerID, debtID); err != nil {
+		return nil, err
+	}
+	return s.store.ListDebtInstallments(ctx, ownerID, debtID)
+}
+
+// GenerateDebtInstallments creates a monthly schedule while preserving the exact
+// principal in integer cents. Any remainder is assigned one cent at a time to
+// the earliest installments.
+func GenerateDebtInstallments(principalCents int64, count int, firstDueDate *string) ([]repository.DebtInstallmentInput, error) {
+	if count == 0 || count == 1 {
+		return nil, nil
+	}
+	if count < 2 || count > 360 {
+		return nil, model.ValidationError{Fields: []model.FieldError{{Field: "installmentCount", Message: "use um valor entre 1 e 360"}}}
+	}
+	if int64(count) > principalCents {
+		return nil, model.ValidationError{Fields: []model.FieldError{{Field: "installmentCount", Message: "nao pode exceder o valor em centavos"}}}
+	}
+	if firstDueDate == nil {
+		return nil, model.ValidationError{Fields: []model.FieldError{{Field: "dueDate", Message: "informe o vencimento da primeira parcela"}}}
+	}
+	first, err := time.Parse("2006-01-02", *firstDueDate)
+	if err != nil {
+		return nil, model.ValidationError{Fields: []model.FieldError{{Field: "dueDate", Message: "use o formato YYYY-MM-DD"}}}
+	}
+	base := principalCents / int64(count)
+	remainder := principalCents % int64(count)
+	items := make([]repository.DebtInstallmentInput, count)
+	for index := range items {
+		amount := base
+		if int64(index) < remainder {
+			amount++
+		}
+		items[index] = repository.DebtInstallmentInput{
+			Number: index + 1, AmountCents: amount, DueDate: addMonthsClamped(first, index).Format("2006-01-02"),
+		}
+	}
+	return items, nil
+}
+
+func addMonthsClamped(date time.Time, months int) time.Time {
+	firstOfTarget := time.Date(date.Year(), date.Month()+time.Month(months), 1, 0, 0, 0, 0, date.Location())
+	lastDay := time.Date(firstOfTarget.Year(), firstOfTarget.Month()+1, 0, 0, 0, 0, 0, date.Location()).Day()
+	day := date.Day()
+	if day > lastDay {
+		day = lastDay
+	}
+	return time.Date(firstOfTarget.Year(), firstOfTarget.Month(), day, 0, 0, 0, 0, date.Location())
 }
 
 func (s *Service) UpdateDebt(ctx context.Context, ownerID, id string, input repository.DebtInput) (model.Debt, error) {

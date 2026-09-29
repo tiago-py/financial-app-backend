@@ -50,6 +50,7 @@ func New(handler *controller.Handler, service *service.Service, corsOrigin strin
 	protected.HandleFunc("GET /api/v1/debts", handler.ListDebts)
 	protected.HandleFunc("POST /api/v1/debts", handler.CreateDebt)
 	protected.HandleFunc("GET /api/v1/debts/{id}", handler.GetDebt)
+	protected.HandleFunc("GET /api/v1/debts/{id}/installments", handler.ListDebtInstallments)
 	protected.HandleFunc("PATCH /api/v1/debts/{id}", handler.UpdateDebt)
 	protected.HandleFunc("DELETE /api/v1/debts/{id}", handler.DeleteDebt)
 	protected.HandleFunc("GET /api/v1/debts/{id}/payments", handler.ListPayments)

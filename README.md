@@ -64,7 +64,7 @@ Todas as rotas abaixo usam o prefixo `/api/v1`, exceto `GET /health`.
 | Categorias | `GET/POST /categories`, `PATCH/DELETE /categories/{id}` |
 | Extrato | `GET /transactions`, `POST /incomes`, `POST /expenses`, atualizacao e estorno |
 | Transferencias | `GET/POST /transfers`, `POST /transfers/{id}/reversal` |
-| Dividas | `GET/POST /debts`, detalhe, atualizacao e exclusao condicionada |
+| Dividas | `GET/POST /debts`, detalhe, parcelas, atualizacao e exclusao condicionada |
 | Pagamentos | `GET/POST /debts/{id}/payments`, `POST /payments/{id}/reversal` |
 | Planejamento | CRUD em `/planned-cash-flows` e realizacao atomica |
 | Relatorios | gastos, media mensal, projecoes e exportacao CSV |
@@ -73,3 +73,8 @@ Contas e categorias com historico sao arquivadas pelas rotas `DELETE`. Uma
 divida so pode ser removida se ainda nao possuir pagamentos; caso contrario,
 deve ser cancelada por `PATCH`. Lancamentos efetivados sao corrigidos por
 estorno, preservando o historico.
+
+`POST /debts` aceita `installmentCount` (1 a 360). Para mais de uma parcela,
+`dueDate` representa o primeiro vencimento; o backend distribui o principal em
+centavos e gera vencimentos mensais. O cronograma pode ser consultado em
+`GET /debts/{id}/installments`. O cadastro nao altera saldos.

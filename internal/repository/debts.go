@@ -14,13 +14,22 @@ type DebtInput struct {
 	PrincipalCents int64
 	DueDate        *string
 	Status         string
+	Installments   []DebtInstallmentInput
+}
+
+type DebtInstallmentInput struct {
+	Number      int
+	AmountCents int64
+	DueDate     string
 }
 
 const debtSelect = `
 	SELECT d.id, d.description, d.creditor, d.principal_cents,
 		COALESCE(SUM(CASE WHEN p.reversed_at IS NULL THEN p.amount_cents ELSE 0 END), 0) AS paid_cents,
 		GREATEST(d.principal_cents - COALESCE(SUM(CASE WHEN p.reversed_at IS NULL THEN p.amount_cents ELSE 0 END), 0), 0) AS pending_cents,
-		d.currency, to_char(d.due_date, 'YYYY-MM-DD'), d.status, d.created_at, d.updated_at
+		d.currency, to_char(d.due_date, 'YYYY-MM-DD'), d.status,
+		GREATEST((SELECT COUNT(*) FROM debt_installments i WHERE i.debt_id = d.id), 1),
+		d.created_at, d.updated_at
 	FROM debts d
 	LEFT JOIN debt_payments p ON p.debt_id = d.id
 `
@@ -29,7 +38,7 @@ func scanDebt(row interface{ Scan(...any) error }) (model.Debt, error) {
 	var item model.Debt
 	err := row.Scan(&item.ID, &item.Description, &item.Creditor, &item.PrincipalCents,
 		&item.PaidCents, &item.PendingCents, &item.Currency, &item.DueDate, &item.Status,
-		&item.CreatedAt, &item.UpdatedAt)
+		&item.InstallmentCount, &item.CreatedAt, &item.UpdatedAt)
 	return item, mapError(err)
 }
 
@@ -60,8 +69,13 @@ func (s *Store) GetDebt(ctx context.Context, ownerID, id string) (model.Debt, er
 }
 
 func (s *Store) CreateDebt(ctx context.Context, ownerID string, input DebtInput) (model.Debt, error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return model.Debt{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	var id string
-	err := s.Pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO debts (owner_id, description, creditor, principal_cents, due_date)
 		VALUES ($1, $2, $3, $4, $5) RETURNING id
 	`, ownerID, strings.TrimSpace(input.Description), nullable(input.Creditor),
@@ -69,7 +83,43 @@ func (s *Store) CreateDebt(ctx context.Context, ownerID string, input DebtInput)
 	if err != nil {
 		return model.Debt{}, mapError(err)
 	}
+	for _, installment := range input.Installments {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO debt_installments (debt_id, installment_number, amount_cents, due_date)
+			VALUES ($1, $2, $3, $4)
+		`, id, installment.Number, installment.AmountCents, installment.DueDate)
+		if err != nil {
+			return model.Debt{}, mapError(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.Debt{}, err
+	}
 	return s.GetDebt(ctx, ownerID, id)
+}
+
+func (s *Store) ListDebtInstallments(ctx context.Context, ownerID, debtID string) ([]model.DebtInstallment, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT i.id, i.debt_id, i.installment_number, i.amount_cents,
+			to_char(i.due_date, 'YYYY-MM-DD'), i.created_at
+		FROM debt_installments i
+		JOIN debts d ON d.id = i.debt_id
+		WHERE d.owner_id = $1 AND d.id = $2
+		ORDER BY i.installment_number
+	`, ownerID, debtID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]model.DebtInstallment, 0)
+	for rows.Next() {
+		var item model.DebtInstallment
+		if err := rows.Scan(&item.ID, &item.DebtID, &item.Number, &item.AmountCents, &item.DueDate, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func (s *Store) UpdateDebt(ctx context.Context, ownerID, id string, input DebtInput) (model.Debt, error) {

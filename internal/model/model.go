@@ -75,9 +75,19 @@ type Debt struct {
 	PendingCents   int64     `json:"pendingCents"`
 	Currency       string    `json:"currency"`
 	DueDate        *string   `json:"dueDate"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	Status           string    `json:"status"`
+	InstallmentCount int       `json:"installmentCount"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
+type DebtInstallment struct {
+	ID          string    `json:"id"`
+	DebtID      string    `json:"debtId"`
+	Number      int       `json:"number"`
+	AmountCents int64     `json:"amountCents"`
+	DueDate     string    `json:"dueDate"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 type DebtPayment struct {
