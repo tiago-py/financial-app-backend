@@ -80,3 +80,20 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+	}
+	if decodeJSON(r, &input) != nil {
+		badJSON(w, r)
+		return
+	}
+	if err := h.service.ChangePassword(r.Context(), UserID(r.Context()), input.CurrentPassword, input.NewPassword); err != nil {
+		writeError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	h.Logout(w, r)
+}

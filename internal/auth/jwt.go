@@ -26,10 +26,15 @@ func NewManager(secret string, ttl time.Duration) *Manager {
 }
 
 func (m *Manager) Issue(userID string) (string, error) {
+	return m.IssueVersion(userID, 0)
+}
+
+func (m *Manager) IssueVersion(userID string, version int64) (string, error) {
 	header, _ := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"})
 	now := time.Now().UTC()
 	payload, err := json.Marshal(map[string]any{
 		"sub": userID,
+		"ver": version,
 		"iat": now.Unix(),
 		"exp": now.Add(m.ttl).Unix(),
 	})
@@ -41,24 +46,37 @@ func (m *Manager) Issue(userID string) (string, error) {
 }
 
 func (m *Manager) Parse(token string) (string, error) {
+	subject, _, err := m.ParseVersion(token)
+	return subject, err
+}
+
+func (m *Manager) ParseVersion(token string) (string, int64, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 || !hmac.Equal([]byte(parts[2]), []byte(m.sign(parts[0]+"."+parts[1]))) {
-		return "", errors.New("token invalido")
+		return "", 0, errors.New("token invalido")
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", errors.New("token invalido")
+		return "", 0, errors.New("token invalido")
 	}
 	var parsed map[string]any
 	if json.Unmarshal(payload, &parsed) != nil {
-		return "", errors.New("token invalido")
+		return "", 0, errors.New("token invalido")
 	}
 	subject, okSubject := parsed["sub"].(string)
 	expiresAt, okExpires := parsed["exp"].(float64)
 	if !okSubject || !okExpires || subject == "" || time.Now().Unix() >= int64(expiresAt) {
-		return "", errors.New("token expirado ou invalido")
+		return "", 0, errors.New("token expirado ou invalido")
 	}
-	return subject, nil
+	version := int64(0) // Existing tokens without ver belong to version zero.
+	if raw, exists := parsed["ver"]; exists {
+		value, ok := raw.(float64)
+		if !ok || value < 0 || value > 9007199254740991 || value != float64(int64(value)) {
+			return "", 0, errors.New("versao de sessao invalida")
+		}
+		version = int64(value)
+	}
+	return subject, version, nil
 }
 
 func (m *Manager) sign(value string) string {

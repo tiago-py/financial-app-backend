@@ -20,9 +20,11 @@ func New(handler *controller.Handler, service *service.Service, corsOrigin strin
 	protected := http.NewServeMux()
 	protected.HandleFunc("GET /api/v1/me", handler.Me)
 	protected.HandleFunc("PATCH /api/v1/me", handler.UpdateMe)
+	protected.HandleFunc("PATCH /api/v1/me/password", handler.ChangePassword)
 	protected.HandleFunc("POST /api/v1/auth/logout", handler.Logout)
 
 	protected.HandleFunc("GET /api/v1/accounts", handler.ListAccounts)
+	protected.HandleFunc("POST /api/v1/accounts", handler.CreateAccount)
 	protected.HandleFunc("GET /api/v1/accounts/{id}", handler.GetAccount)
 	protected.HandleFunc("PATCH /api/v1/accounts/{id}", handler.UpdateAccount)
 	protected.HandleFunc("DELETE /api/v1/accounts/{id}", handler.ArchiveAccount)
@@ -87,7 +89,7 @@ func authenticate(service *service.Service, next http.Handler) http.Handler {
 			http.Error(w, `{"code":"unauthorized","message":"Token ausente."}`, http.StatusUnauthorized)
 			return
 		}
-		userID, err := service.ParseToken(token)
+		userID, err := service.ParseToken(r.Context(), token)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			http.Error(w, `{"code":"unauthorized","message":"Token invalido ou expirado."}`, http.StatusUnauthorized)

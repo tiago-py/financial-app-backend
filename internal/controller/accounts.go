@@ -145,3 +145,17 @@ func queryInt(r *http.Request, key string, fallback int) int {
 	}
 	return value
 }
+
+func (h *Handler) CreateAccount(w http.ResponseWriter, r *http.Request) {
+	var input accountRequest
+	if decodeJSON(r, &input) != nil {
+		badJSON(w, r)
+		return
+	}
+	account, err := h.service.CreateAccount(r.Context(), UserID(r.Context()), accountInput(input))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, account)
+}

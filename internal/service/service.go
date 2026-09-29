@@ -27,8 +27,18 @@ func New(store *repository.Store, cache *cache.Cache, tokens *auth.Manager) *Ser
 	return &Service{store: store, cache: cache, tokens: tokens}
 }
 
-func (s *Service) Ping(ctx context.Context) error          { return s.store.Ping(ctx) }
-func (s *Service) ParseToken(token string) (string, error) { return s.tokens.Parse(token) }
+func (s *Service) Ping(ctx context.Context) error { return s.store.Ping(ctx) }
+func (s *Service) ParseToken(ctx context.Context, token string) (string, error) {
+	userID, version, err := s.tokens.ParseVersion(token)
+	if err != nil {
+		return "", model.ErrUnauthorized
+	}
+	current, err := s.store.SessionVersion(ctx, userID)
+	if err != nil || current != version {
+		return "", model.ErrUnauthorized
+	}
+	return userID, nil
+}
 
 func validateUserInput(name, email, password string) error {
 	if err := model.ValidateRequired(name, "name", 120); err != nil {
@@ -87,11 +97,11 @@ func (s *Service) requireAdmin(ctx context.Context, actorID string) error {
 }
 
 func (s *Service) Login(ctx context.Context, email, password string) (model.User, string, error) {
-	user, hash, err := s.store.UserByEmail(ctx, email)
+	user, hash, version, err := s.store.UserByEmail(ctx, email)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
 		return model.User{}, "", model.ErrUnauthorized
 	}
-	token, err := s.tokens.Issue(user.ID)
+	token, err := s.tokens.IssueVersion(user.ID, version)
 	return user, token, err
 }
 
@@ -118,12 +128,18 @@ func (s *Service) GetAccount(ctx context.Context, ownerID, id string) (model.Acc
 	return s.store.GetAccount(ctx, ownerID, id)
 }
 
-func (s *Service) createAccount(ctx context.Context, ownerID string, input repository.AccountInput) (model.Account, error) {
+func (s *Service) CreateAccount(ctx context.Context, ownerID string, input repository.AccountInput) (model.Account, error) {
 	if err := model.ValidateRequired(input.Name, "name", 120); err != nil {
 		return model.Account{}, err
 	}
 	if err := model.ValidateDate(input.OpenedOn, "openedOn"); err != nil {
 		return model.Account{}, err
+	}
+	if len(input.Institution) > 120 || len(input.Type) > 40 || len(input.Color) > 16 {
+		return model.Account{}, model.ErrInvalid
+	}
+	if input.OpeningBalanceCents < -9007199254740991 || input.OpeningBalanceCents > 9007199254740991 {
+		return model.Account{}, model.ValidationError{Fields: []model.FieldError{{Field: "openingBalanceCents", Message: "saldo fora do limite permitido"}}}
 	}
 	account, err := s.store.CreateAccount(ctx, ownerID, input)
 	if err == nil {
@@ -139,7 +155,7 @@ func (s *Service) AdminCreateAccount(ctx context.Context, actorID, ownerID strin
 	if _, err := s.store.UserByID(ctx, ownerID); err != nil {
 		return model.Account{}, err
 	}
-	return s.createAccount(ctx, ownerID, input)
+	return s.CreateAccount(ctx, ownerID, input)
 }
 
 func (s *Service) UpdateAccount(ctx context.Context, ownerID, id string, input repository.AccountInput) (model.Account, error) {
